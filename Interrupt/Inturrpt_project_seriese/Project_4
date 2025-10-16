@@ -1,0 +1,49 @@
+#include <iom128v.h>
+#include <macros.h>
+
+void delay_m(unsigned int m);
+
+// 7세그먼트 숫자 패턴 (0~9, Common Cathode 방식 기준)
+unsigned char number[10] = {0x04, 0x2f, 0x18, 0x09, 0x23, 0x41, 0x40, 0x07, 0x00, 0x01};
+
+// 요구사항 5: 시작 숫자를 5로 초기화
+char cnt;
+
+
+void main(void)
+{
+    // --- 포트 설정 ---
+    DDRD = 0x7F;     // PORTD 0~6번 핀을 출력으로 설정 (7-segment용)
+    ETCRB = 0x02;    //
+    ETMSK = 0x10;
+    SREG |= 0x80      //0000 0000
+
+    while(1)
+    {
+        while(cnt == 10) cnt = 0;
+        PORTD = number[cnt++];
+        delay_m(1000);
+        delay_m(1000);
+        delay_m(1000);
+        delay_m(1000);
+        delay_m(1000);
+        }
+    }
+#pragma interrupt_handler int4_isr:iv_INT4
+void int4_isr(void)
+{
+    if(cnt == 10) cnt = 0;
+    PORTD = number[cnt++];
+ //external interupt on INT4
+}
+
+void delay_m(unsigned int m)
+{
+    unsigned int i, j;
+    for(i = 0; i < m; i++)
+    {
+        for(j = 0; j < 2100; j++){
+        ;
+        };
+    }
+}
