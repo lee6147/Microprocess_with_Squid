@@ -1,0 +1,42 @@
+#include <iom128v.h>
+
+void delay_m(unsigned int m);
+
+// 7세그먼트 숫자 패턴 (0~9)
+unsigned char number[10] = {0x04, 0x2F, 0x18, 0x09, 0x23, 0x41, 0x40, 0x07, 0x00, 0x01};
+char cnt = 0; // [경고 수정] 변수 선언 시 0으로 명시적 초기화
+
+int main(void)
+{
+    // --- 포트 설정 ---
+    DDRD = 0x7F; // PORTD 0~6번 핀을 출력으로 설정 (7-segment용)
+
+    // --- 인터럽트 설정 ---
+    EICRB = 0x02; // [에러 수정] INT4를 Falling Edge에서 감지하도록 설정 [cite: 1170, 1188]
+    //EIMSK = 0x10; // [논리 오류 수정] 외부 인터럽트 4번(INT4) 활성화 [cite: 1209, 1210]
+
+    // --- 메인 루프 ---
+    while(1)
+    {
+        if(cnt == 10) cnt = 0;
+        PORTD = number[cnt];
+
+        // INT4 플래그 비트가 1인지 확인 (Polling 방식)
+        if(EIFR == 0x10){
+            cnt++;
+            delay_m(20);
+            EIFR = 0x10;
+        }
+    }
+}
+
+void delay_m(unsigned int m)
+{
+    unsigned int i, j;
+    for(i = 0; i < m; i++)
+    {
+        for(j = 0; j < 2100; j++){
+        ;
+        };
+    }
+}
