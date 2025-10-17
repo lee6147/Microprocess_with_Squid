@@ -34,6 +34,7 @@ void int4_isr(void)
 {
     delay_m(200);
     cnt++;
+    EIFR = 0x10;
 }
 
 void delay_m(unsigned int m)
