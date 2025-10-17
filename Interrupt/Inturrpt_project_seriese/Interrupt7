@@ -1,0 +1,52 @@
+#include <iom128v.h>
+#include <macros.h>
+void delay_m(unsigned int m);
+
+// 7세그먼트 숫자 패턴 (0~9, Common Cathode 방식 기준)
+unsigned char number[10] = {0x04, 0x2f, 0x18, 0x09, 0x23, 0x41, 0x40, 0x07, 0x00, 0x01};
+
+// 요구사항 5: 시작 숫자를 5로 초기화
+char cnt;
+
+
+void main(void)
+{
+
+    DDRD = 0x7f;
+    EICRB = 0x0e;
+    EIMSK = 0x30;
+    SET();
+
+    while(1){
+        delay(5000);
+
+        }
+    }
+#pragma interrupt_handler int4_isr: iv_INT4
+void int4_isr(void)
+{
+    delay_m(200);
+    if(cnt == 10) cnt = 0;
+    cnt++;
+    EIFR = 0x20;
+}
+
+#pragma interrupt_handler int5_isr: iv_INT4
+void int5_isr(void)
+{
+    delay_m(200);
+    if(cnt == -1) cnt = 9;
+    cnt--;
+    EIFR = 0x10;
+}
+
+void delay_m(unsigned int m)
+{
+    unsigned int i, j;
+    for(i = 0; i < m; i++){
+        for(j = 0; j < 2100; j++){
+        ;
+        };
+    }
+}
+
