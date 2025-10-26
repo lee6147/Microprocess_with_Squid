@@ -1,0 +1,68 @@
+#include <iom128v.h>
+#include <macros.h> 
+
+void delay_m(unsigned int m);
+
+unsigned char number[10] = {0x04, 0x2f, 0x18, 0x09, 0x23, 0x41, 0x40, 0x07, 0x00, 0x01};
+char cnt = 0; 
+
+// (동일) 0: 정지, 1: 자동 증가 시작
+volatile char isCounting = 0; 
+
+void main(void)
+{
+    DDRD = 0x7f;         
+    
+    // ▼▼▼ 1. 설정 (INT4만 사용) ▼▼▼
+    // INT4, Falling Edge (누를 때)
+    EICRB = 0x02;        
+    
+    // INT4(bit 4)만 허용
+    EIMSK = 0x10;        
+    
+    // (동일) 전역 인터럽트 허용
+    SREG |= 0x80;        
+    
+    // (동일) 프로그램 시작 시 0을 먼저 표시
+    PORTD = number[cnt]; 
+
+    // ▼▼▼ 2. main 루프 (7번과 동일) ▼▼▼
+    // 0.5초(500ms) 주기로 자동 증가
+    while(1)
+    {
+        if (isCounting == 1) // "시작" 상태일 때만
+        {
+            delay_m(500); // 0.5초 대기
+
+            if(cnt == 10) cnt = 0;
+            PORTD = number[cnt++];
+        }
+    } 
+} 
+
+// --- INT4 ISR (시작/정지 토글 스위치) ---
+#pragma interrupt_handler int4_isr:iv_INT4
+void int4_isr(void)
+{
+    // ▼▼▼ 3. 토글(Toggle) 로직 ▼▼▼
+    // isCounting 값을 0 -> 1 또는 1 -> 0으로 뒤집음
+    isCounting = !isCounting; 
+    
+    // (동일) 디바운싱
+    delay_m(100); 
+    EIFR = 0x10; // INTF4 클리어
+}
+
+// (INT5 ISR은 필요 없으므로 삭제)
+
+
+// --- 딜레이 함수 (동일) ---
+void delay_m(unsigned int m)
+{
+    unsigned int i, j;
+    for(i=0; i<m; i++)
+    {
+        for(j=0; j<2100; j++){ 
+        }
+    }
+}
