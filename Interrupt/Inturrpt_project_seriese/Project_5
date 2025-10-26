@@ -1,0 +1,37 @@
+#include <iom128v.h>
+#include <macros.h>
+
+void delay_m(unsigned int m);
+unsigned char number[10] = {0x04, 0x2f, 0x18, 0x09, 0x23, 0x41, 0x40, 0x07, 0x00, 0x01};
+char cnt = 0;
+void main(void)
+{
+    DDRD = 0x7f;
+    // INT5, Rising Edge (뗄 때)
+    EICRB = 0x0C;
+    EIMSK = 0x20;
+    SREG |= 0x80;
+    while(1)    {
+        delay_m(1000);
+        delay_m(1000);
+        delay_m(1000);
+        delay_m(1000);
+        delay_m(1000);
+    }
+}
+#pragma interrupt_handler int5_isr:iv_INT5
+void int5_isr(void){
+    if(cnt == 255) cnt = 9;
+    PORTD = number[cnt--];
+    delay_m(100);
+    EIFR = 0x20;
+}
+
+void delay_m(unsigned int m){
+    unsigned int i, j;
+    for(i=0; i<m; i++)
+    {
+        for(j=0; j<2100; j++){
+        }
+    }
+}
