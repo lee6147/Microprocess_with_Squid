@@ -1,0 +1,49 @@
+#include <iom128v.h>
+#include <macros.h> 
+
+void delay_m(unsigned int m);
+unsigned char number[10] = {0x04, 0x2f, 0x18, 0x09, 0x23, 0x41, 0x40, 0x07, 0x00, 0x01};
+char cnt = 0; 
+volatile char isCounting = 0; 
+void main(void)
+{
+    DDRD = 0x7f;         
+    EICRB = 0x0A;        
+    EIMSK = 0x30;        
+    SREG |= 0x80;        
+    PORTD = number[cnt]; 
+    while(1){
+        if (isCounting == 1)
+        {
+            delay_m(500);
+
+            if(cnt == 10) cnt = 0;
+            PORTD = number[cnt++];
+        }
+    } 
+} 
+#pragma interrupt_handler int4_isr:iv_INT4
+void int4_isr(void){
+    isCounting = !isCounting; 
+    delay_m(100); 
+    EIFR = 0x10; // INTF4 클리어
+}
+#pragma interrupt_handler int5_isr:iv_INT5
+void int5_isr(void){
+    if (isCounting == 0)
+    {
+        cnt = 0; 
+        PORTD = number[cnt]; 
+    }
+    delay_m(100);
+    EIFR = 0x20; 
+}
+void delay_m(unsigned int m)
+{
+    unsigned int i, j;
+    for(i=0; i<m; i++)
+    {
+        for(j=0; j<2100; j++){ 
+        }
+    }
+}
