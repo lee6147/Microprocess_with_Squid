@@ -1,0 +1,43 @@
+//1016_external_project03
+#include <iom128v.h>
+//#INT4 누를때마다 seg 증가 , INT5 누를때마다 seg 숫자가 감소하는 프로그램, 숫자는 5부터 시작
+
+void delay_m(unsigned int m);
+
+unsigned char number[10] = {0x04, 0x2f, 0x18, 0x09, 0x23, 0x41, 0x40, 0x07, 0x00, 0x01};
+
+char count = 5; 
+
+int main(void){
+    DDRD = 0x7F; 
+    EICRB = 0x0A; 
+    while(1){
+        PORTD = number[count];
+        if(EIFR & 0x10){ 
+            count++;
+            if(count == 10){
+                count = 0;
+            }
+            delay_m(200); 
+            EIFR = 0x10; 
+        }
+        if(EIFR & 0x20){ 
+            if(count == 0){
+                count = 9;
+            } else {
+                count--;
+            }
+            delay_m(200); 
+            EIFR = 0x20;  
+        }
+    }
+}
+
+void delay_m(unsigned int m){
+    unsigned int i, j;
+    for(i=0;i<m;i++){
+        for(j=0;j<2100;j++){
+            ;
+        }
+    }
+}
