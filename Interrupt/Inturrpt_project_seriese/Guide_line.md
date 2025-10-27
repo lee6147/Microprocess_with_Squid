@@ -2,5 +2,5 @@
 //Stop을 하고 난 다음 아트메가128보드의 리셋 버튼을 누른 뒤 
 //실행을 하면 정상 동작이 됨.
 //주의: 바운싱이 될 수 있음(잡긴 했는데, 혹시 모름)
-![nse-1761011844590844867-3955](https://github.com/user-attachments/assets/53e58190-a619-4856-9e3a-475e94736354)
-<img width="491" height="233" alt="스크린샷 2025-10-27 063744" src="https://github.com/user-attachments/assets/63715ad1-1ddf-40a5-86b4-f2cb43e88bdc" />
+
+<img width="892" height="652" alt="스크린샷 2025-10-27 174538" src="https://github.com/user-attachments/assets/d8ea090b-59c0-4567-97f6-e0bb7b89333c" />
