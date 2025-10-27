@@ -1,0 +1,54 @@
+//1017_external_project06
+#include <iom128v.h>
+#include <macros.h>
+
+//#INT4를 누르면 숫자가 하나씩 증가, INT5를 누르면 숫자가 하나씩 감소
+
+void delay_m(unsigned int m);
+
+unsigned char number[10] = {0x04, 0x2f, 0x18, 0x09, 0x23, 0x41, 0x40, 0x07, 0x00, 0x01};
+char count;
+
+int main(void){
+    DDRD = 0x7f; // 0111 1111
+    EICRB = 0x0E; // 00 00 11 10 INT5 rising , INT4 falling
+    EIMSK = 0x30; // 0011 0000 interrupt 4번과 5번을 service routine으로 사용
+    SREG |= 0x80; // 1000 0000 최상위 비트 1로 마스킹
+    PORTD = number[count];
+    while(1) {
+        delay_m(1000);
+        delay_m(1000);
+        delay_m(1000);
+        delay_m(1000);
+        delay_m(1000);
+    }
+}
+#pragma interrupt_handler int4_isr:iv_INT4
+void int4_isr(void){  
+    delay_m(200);
+    count++;
+    if(count == 10){
+        count = 0;
+    }
+    PORTD = number[count];
+    EIFR |= 0x10;
+}
+#pragma interrupt_handler int5_isr:iv_INT5
+void int5_isr(void){
+    delay_m(200);
+    count--;
+    if(count == -1){
+        count = 9;
+    }
+    PORTD = number[count];
+    EIFR |= 0x20;
+}
+
+void delay_m(unsigned int m){
+    unsigned int i, j;
+    for(i=0;i<m;i++){
+        for(j=0;j<2100;j++){
+            ;
+        }
+    }
+}
