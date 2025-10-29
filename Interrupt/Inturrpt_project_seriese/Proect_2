@@ -1,0 +1,53 @@
+//1016_external_project02 (Based on P03)
+#include <iom128v.h>
+//#INT5 누를때마다 seg 숫자가 감소하는 프로그램
+
+void delay_m(unsigned int m);
+
+unsigned char number[10] = {0x04, 0x2f, 0x18, 0x09, 0x23, 0x41, 0x40, 0x07, 0x00, 0x01};
+
+// 1. 시작 숫자 0으로 변경
+char count = 0; 
+
+// int main(void) 대신 void main(void)을 사용해 경고 제거
+void main(void){
+    DDRD = 0x7F; 
+    
+    // 2. EICRB 설정 변경
+    // INT5 "누를 때"(Falling Edge) -> ISC51=1, ISC50=0 -> 0b00001000 -> 0x08
+    EICRB = 0x08; 
+    
+    // Polling 방식이므로 EIMSK, SREG 설정 안 함
+    
+    // 프로그램 시작 시 0을 FND에 표시
+    PORTD = number[count];
+
+    while(1){
+        
+        // 3. INTF4(증가) if 블록 삭제
+        
+        // INTF5(감소) 플래그가 켜졌는지 검사
+        if(EIFR & 0x20){ 
+            if(count == 0){
+                count = 9;
+            } else {
+                count--;
+            }
+            
+            // FND에 변경된 숫자 표시
+            PORTD = number[count]; 
+            
+            delay_m(200); // 디바운싱
+            EIFR = 0x20;  // INTF5 플래그 클리어
+        }
+    }
+}
+
+void delay_m(unsigned int m){
+    unsigned int i, j;
+    for(i=0;i<m;i++){
+        for(j=0;j<2100;j++){
+            ;
+        }
+    }
+}
