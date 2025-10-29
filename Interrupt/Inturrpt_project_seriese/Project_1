@@ -1,0 +1,39 @@
+//1016_external_project01 (Based on P03)
+#include <iom128v.h>
+//#INT4 뗄때마다 seg 증가
+
+void delay_m(unsigned int m);
+
+unsigned char number[10] = {0x04, 0x2f, 0x18, 0x09, 0x23, 0x41, 0x40, 0x07, 0x00, 0x01};
+
+char count = 0; 
+
+// ▼▼▼ (★수정된 부분★) ▼▼▼
+// int main(void) -> void main(void)
+void main(void){
+    DDRD = 0x7F; 
+    
+    EICRB = 0x03; // INT4, Rising Edge (뗄 때)
+    
+    while(1){
+        PORTD = number[count];
+        
+        if(EIFR & 0x10){ 
+            count++;
+            if(count == 10){
+                count = 0;
+            }
+            delay_m(200); 
+            EIFR = 0x10;  
+        }
+    }
+}
+
+void delay_m(unsigned int m){
+    unsigned int i, j;
+    for(i=0;i<m;i++){
+        for(j=0;j<2100;j++){
+            ;
+        }
+    }
+}
