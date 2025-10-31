@@ -1,0 +1,73 @@
+//1030_CLCD exp02
+//카운트 0~9 500ms
+#include <iom128v.h>
+void write_data(char d);
+void write_instruction(char i);
+void lcd_init(void);
+void delay_m(unsigned int m);
+char cnt = 0;
+int main(void)
+{
+    DDRG = 0x07; // 0000 0111 G2 G1 G0
+    DDRC = 0xff; // 1111 1111
+    lcd_init(); //
+    while(1)
+    {   write_instruction(0x84); // clcd 위치 지정 첫번째줄 0x80~8F , 두번째줄 0xC0~CF
+        write_data('c');
+        write_data('n');
+        write_data('t');
+        write_data(' ');
+        write_data('=');
+        write_data(' ');
+        write_data('0' + cnt++);  // 문자 0 = 0x30
+        if(cnt == 10){
+            cnt = 0;
+        }
+        delay_m(500);
+    }
+}
+
+void write_data(char d){
+    PORTG = 0x06;
+    delay_m(1);
+    PORTC = d;
+    delay_m(1);
+    PORTG = 0x04;
+}
+
+void write_instruction(char i){
+    PORTG = 0x02;
+    delay_m(1);
+    PORTC = i;
+    delay_m(1);
+    PORTG = 0x00;
+}
+
+void lcd_init(void){
+    write_instruction(0x30);
+    delay_m(15);
+    write_instruction(0x30);
+    delay_m(1);
+    write_instruction(0x30);
+    delay_m(1);
+    write_instruction(0x30);
+    delay_m(1);
+    write_instruction(0x38);
+    delay_m(1);
+    write_instruction(0x0e);
+    delay_m(1);
+    write_instruction(0x01);
+    delay_m(1);
+}
+
+
+void delay_m(unsigned int m){
+    unsigned int i, j;
+    for(i=0;i<m;i++){
+        for(j=0;j<2100;j++){
+            ;
+        }
+    }
+}
+
+
