@@ -1,0 +1,19 @@
+#include <util/delay.h>
+#include <avr/interrupt.h>
+
+void write_data(char d);
+void write_instruction(char i);
+void lcd_init(void);
+void NumbertoTwoDigit(int a);
+void NumbertoFourDigit(int a);
+void write_string(char *pt);
+void NumbertoBinary(char a);
+void NumbertoHex(char a);
+char Hex_convert(char a);
+
+int main(void)
+{
+    DDRG = 0x07;
+    DDRC = 0xff;
+
+    lcd_init();
