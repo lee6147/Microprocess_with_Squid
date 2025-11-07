@@ -1,0 +1,399 @@
+#include <iom128v.h>
+
+// --- 함수 원형 선언 ---
+// 쉬운 설명: 앞으로 이런 이름의 함수들을 사용할 것이라고 미리 알려줍니다.
+void write_data(char d);              // LCD에 '데이터'(문자) 1개를 쓰는 함수
+void write_instruction(char i);       // LCD에 '명령어' 1개를 쓰는 함수
+void lcd_init(void);                  // LCD를 처음 켤 때 설정하는 함수
+void NumbertoFourDigit(int a);        // 숫자(int)를 4자리 문자열로 바꿔 LCD에 쓰는 함수
+void write_string(char *pt);          // LCD에 문자열(예: "VAR")을 쓰는 함수
+void delay_m(unsigned int m);         // 지정된 시간(ms)만큼 잠시 기다리는 함수
+unsigned int ADC_Converter(char channel); // 지정된 아날로그 센서 채널의 값을 읽어오는 함수
+void DectoFloat(int a);               // ADC 값(0~1023)을 전압(0.00V~5.00V)으로 바꿔 LCD에 쓰는 함수
+
+// --- 전역 변수 선언 ---
+// 쉬운 설명: 프로그램 전체에서 공통으로 사용할 변수들입니다.
+unsigned int ADC_result;              // ADC 변환 결과(0~1023)를 저장할 변수
+char dummy_1000, dummy_100, dummy_10, dummy_1; // 4자리 숫자 변환 시 각 자릿값을 임시 저장할 변수
+
+
+int main(void)
+{
+    // --- 1. 하드웨어 초기 설정 ---
+    
+    /*
+     * 쉬운 설명: LCD와 연결된 핀들을 '출력용'으로 설정합니다.
+     * G포트는 LCD에 명령을 내릴 '제어선'으로, C포트는 글자를 보낼 '데이터 통로'로 사용합니다.
+     *
+     * 정석 설명: 
+     * DDRG = 0x07; // PORTG의 하위 3비트(PG0, PG1, PG2)를 출력으로 설정 (RS, R/W, E 핀으로 사용 추정)
+     * DDRC = 0xff; // PORTC의 8비트(PC0~PC7) 전체를 출력으로 설정 (LCD 8비트 데이터 버스로 사용)
+     */
+    DDRG = 0x07;
+    DDRC = 0xff;
+    
+    /*
+     * 쉬운 설명: LCD 화면을 켜고, 글자를 쓸 수 있도록 준비시킵니다.
+     * 정석 설명: LCD 컨트롤러(HD44780)를 8비트, 2라인 모드로 초기화하는 시퀀스를 실행합니다. [cite: 5119-5161]
+     */
+    lcd_init();
+
+    // --- 2. ADC(아날로그-디지털 변환기) 초기 설정 ---
+    
+    /*
+     * 쉬운 설명: 아날로그 센서 값을 읽을 준비를 합니다. 
+     * (1) 기준 전압을 5V(AVCC)로 설정하고, (2) 1번 센서(PF1)를 기본으로 선택합니다.
+     *
+     * 정석 설명: 
+     * ADMUX = 0b01000001; (0x41)
+     * REFS1:0 = 01 : AVCC(5V)를 ADC의 기준 전압으로 사용합니다.
+     * ADLAR   = 0  : 변환 결과(10비트)를 ADCH/ADCL 레지스터에 우측 정렬합니다.
+     * MUX4:0  = 00001 : ADC 채널 1 (PF1)을 선택합니다.
+     * (참고: 코드에서 (1 << REFS1) | (1 << REFS1)은 (1 << REFS1)과 동일하므로, 
+     * 실제 값은 0b01000001 (0x41)이 됩니다.)
+     */
+    ADMUX = ( (1 << REFS1) | (1 << REFS1) | (0 << ADLAR) | (1 << MUX0) );  // 0x41
+
+    /*
+     * 쉬운 설명: (1) ADC 기능을 켜고, (2) MCU의 빠른 속도를 1/128로 늦춰서 안정적인 측정 속도를 만듭니다.
+     *
+     * 정석 설명: 
+     * ADCSRA = 0b10000111; (0x87)
+     * ADEN    = 1 : ADC를 활성화합니다.
+     * ADSC    = 0 : ADC 변환을 아직 시작하지 않습니다.
+     * ADPS2:0 = 111 : ADC 클럭 프리스케일러를 128분주로 설정합니다. (16MHz / 128 = 125KHz)
+     */
+    ADCSRA = ((1 << ADEN) | (0 << ADSC) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0)); // 0x87
+
+    ADC_result = ADC; // 혹시 모를 초기값을 읽어와 버립니다.
+
+    // --- 3. 메인 무한 루프 ---
+    // 쉬운 설명: 전원이 켜져 있는 동안 아래 작업을 계속 무한 반복합니다.
+    while(1)
+    {
+        /* * [참고] 이 3줄은 ADC_Converter 함수 내부의 로직과 중복됩니다.
+         * 아마도 첫 번째 변환을 강제로 시작하기 위한 의도일 수 있으나,
+         * ADC_Converter 함수 내에서 이미 처리되므로 생략 가능성이 있습니다.
+         */
+        ADCSRA = ADCSRA | (1 << ADSC); // 0xc7  1100 0111 // 변환 시작!
+        while(ADCSRA & 0x40);          // 변환이 끝날 때까지(ADSC 비트가 0이 될 때까지) 기다리기.
+        ADCSRA = ADCSRA | (0 << ADSC); // (의미 없음) ADSC 비트는 이미 0입니다.
+
+        
+        // --- 센서 1 (가변저항) ---
+        ADC_result = ADC_Converter(0);  // 0번 센서(PF0) 값을 읽어옵니다.
+        write_instruction(0x80);      // LCD 첫째 줄, 첫째 칸으로 커서 이동. [cite: 4602-4604, 4830-4841]
+        write_string("VAR");          // "VAR"이라는 글자를 씁니다.
+        write_instruction(0xc0);      // LCD 둘째 줄, 첫째 칸으로 커서 이동. [cite: 4602-4604, 4830-4841]
+        DectoFloat(ADC_result);       // 읽어온 숫자(0~1023)를 전압("0.00V"~"5.00V")으로 바꿔 씁니다.
+
+        // --- 센서 2 (CDS, 조도센서) ---
+        ADC_result = ADC_Converter(1);  // 1번 센서(PF1) 값을 읽어옵니다.
+        write_instruction(0x85);      // LCD 첫째 줄, 여섯째 칸으로 커서 이동.
+        write_string("CDS");          // "CDS"라는 글자를 씁니다.
+        write_instruction(0xc5);      // LCD 둘째 줄, 여섯째 칸으로 커서 이동.
+        NumbertoFourDigit(ADC_result);// 읽어온 숫자(0~1023)를 4자리 문자열(예: " 875")로 바꿔 씁니다.
+
+        // --- 센서 3 (2_R, 미사용 저항) ---
+        ADC_result = ADC_Converter(2);  // 2번 센서(PF2) 값을 읽어옵니다.
+        write_instruction(0x8A);      // LCD 첫째 줄, 열한째 칸으로 커서 이동.
+        write_string("2_R");          // "2_R"이라는 글자를 씁니다.
+        write_instruction(0xca);      // LCD 둘째 줄, 열한째 칸으로 커서 이동.
+        DectoFloat(ADC_result);       // 읽어온 숫자를 전압으로 바꿔 씁니다.
+    }
+}
+
+/*
+ * 쉬운 설명: ADC가 읽은 숫자(0~1023)를 전압(0.00V~5.00V)으로 변환하는 계산기입니다.
+ * 정석 설명: 10비트 ADC 결과값을 5.0V 스케일로 정규화(Normalize)하고, 
+ * 이를 소수점 2자리까지만 표현하는 문자열로 변환하여 LCD에 출력합니다.
+ */
+void DectoFloat(int a)
+{
+    float Float;    // 3.14와 같은 소수점 값을 저장할 변수
+    int iInt, ifrac, ten, one; // 정수부(3), 소수부(25), 십의자리(2), 일의자리(5)
+    float Dec = (float)a; // 정수 a를 소수점 연산을 위해 float 타입으로 변경
+    
+    // 핵심 계산: (입력값 / 최대값) * 기준전압 = 현재전압
+    Float = (5.0f / 1023.0f) * Dec; // 예: (512 / 1023.0) * 5.0 = 2.50...V
+
+    iInt = (int)Float; // 정수 부분(예: 2)만 추출
+    // 소수점 2자리(예: 0.50...)에 100을 곱해 정수(예: 50)로 만듦
+    ifrac = (int)((Float-iInt)*100.0f); 
+
+    ten = ifrac / 10; // 50 / 10 = 5
+    one = ifrac - (ten * 10); // 50 - (5 * 10) = 0
+
+    write_data(iInt + 0x30); // 정수 2를 아스키 문자 '2'(0x32)로 변환 후 전송
+    write_data('.');         // '.' 문자 전송
+    write_data(ten + 0x30); // 정수 5를 아스키 문자 '5'(0x35)로 변환 후 전송
+    write_data(one + 0x30); // 정수 0을 아스키 문자 '0'(0x30)로 변환 후 전송
+    write_data('V');         // 'V' 문자 전송
+}
+
+/*
+ * 쉬운 설명: 'channel' 번호에 해당하는 센서 1개의 값을 읽어오는 함수입니다.
+ * 정석 설명: ADC 채널을 선택하고, 변환을 시작하며, 
+ * 변환이 완료될 때까지 폴링(Polling) 방식으로 대기한 후, ADC 결과 레지스터 값을 반환합니다.
+ */
+unsigned int ADC_Converter(char channel)
+{
+    /* * 쉬운 설명: (1) 기존의 기준 전압 설정은 그대로 두고, (2) 원하는 센서 채널(0, 1, 2)로 연결을 바꿉니다.
+     * 정석 설명: ADMUX & 0xe0 (0b11100000) : 상위 3비트(REFS1:0, ADLAR)는 유지하고 하위 5비트(MUX4:0)를 0으로 지웁니다.
+     * | channel : 지워진 하위 5비트 영역에 새로운 채널 번호를 설정합니다.
+     */
+    ADMUX = ((ADMUX & 0xe0) | channel);
+           
+    ADCSRA |= 1 << ADSC; // 정석: ADSC 비트를 1로 세트하여 ADC 변환을 시작합니다.
+    
+    /*
+     * 쉬운 설명: 변환이 끝날 때까지(ADSC 비트가 0이 될 때까지) 잠시 기다립니다.
+     * 정석 설명: ADCSRA 레지스터의 6번 비트(ADSC, 0x40)가 1이면 변환 중, 0이면 변환 완료입니다.
+     * 하드웨어가 변환을 완료하면 이 비트를 0으로 자동 클리어하므로, 
+     * 이 비트가 0이 될 때까지 while 루프를 돌며 대기(Polling)합니다.
+     */
+    while(ADCSRA & 0x40); 
+    
+    // 정석: 변환이 완료된 10비트 결과값(ADCL과 ADCH)을 16비트 정수(ADC)로 읽어 반환합니다.
+    return ADC;
+}
+
+/*
+ * 쉬운 설명: LCD에 '글자' 1개를 씁니다. (예: 'A', '1')
+ * 정석 설명: RS=1(데이터), R/W=0(쓰기)으로 설정하고, 
+ * E(Enable) 핀에 H->L 펄스를 발생시켜 PORTC의 데이터를 LCD로 전송합니다. [cite: 4553-4556]
+ */
+void write_data(char d)
+{
+    // PORTG = 0x06 (0b...110) : RS=1(데이터), E=1(준비), R/W=0(쓰기)
+    PORTG = 0x06;
+    delay_m(1);
+    PORTC = d;      // 데이터 버스(PORTC)에 문자 데이터 전송
+    delay_m(1);
+    // PORTG = 0x04 (0b...100) : RS=1(데이터), E=0(실행!), R/W=0(쓰기)
+    // E 핀이 1(High)에서 0(Low)이 되면서 LCD가 데이터를 읽어갑니다. [cite: 4453-4455]
+    PORTG = 0x04;
+}
+
+/*
+ * 쉬운 설명: LCD에 '명령' 1개를 내립니다. (예: 화면 지우기, 커서 이동)
+ * 정석 설명: RS=0(명령), R/W=0(쓰기)으로 설정하고,
+ * E(Enable) 핀에 H->L 펄스를 발생시켜 PORTC의 명령 코드를 LCD로 전송합니다. [cite: 4447-4452]
+ */
+void write_instruction(char i)
+{
+    // PORTG = 0x02 (0b...010) : RS=0(명령), E=1(준비), R/W=0(쓰기)
+    PORTG = 0x02;
+    delay_m(1);
+    PORTC = i;      // 데이터 버스(PORTC)에 명령어 코드 전송
+    delay_m(1);
+    // PORTG = 0x00 (0b...000) : RS=0(명령), E=0(실행!), R/W=0(쓰기)
+    // E 핀이 1(High)에서 0(Low)이 되면서 LCD가 명령어를 읽어갑니다. [cite: 4453-4455]
+    PORTG = 0x00;
+}
+
+/*
+ * 쉬운 설명: LCD를 처음 켜서 작동할 수 있도록 설정하는 함수입니다.
+ * 정석 설명: 8비트 모드 설정(0x30 4회), 기능 설정(0x38), 화면 표시 설정(0x0e), 
+ * 화면 지우기(0x01) 순서로 명령을 전송하여 LCD를 초기화합니다.
+ */
+void lcd_init(void)
+{
+    write_instruction(0x30); // 8비트 모드 설정 1
+    delay_m(15);             // 15ms 이상 대기 (전원 켜진 후 안정화 시간) [cite: 5119-5161]
+    write_instruction(0x30); // 8비트 모드 설정 2 [cite: 5119-5161]
+    delay_m(1);
+    write_instruction(0x30); // 8비트 모드 설정 3 [cite: 5119-5161]
+    delay_m(1);
+    write_instruction(0x30); // (안정성을 위해 1회 추가)
+    delay_m(1);
+    
+    // 정석: 0x38 = 8비트 데이터(DL=1), 2라인(N=1), 5x8 폰트(F=0) [cite: 4799-4819]
+    write_instruction(0x38); 
+    delay_m(1);
+    
+    // 정석: 0x0e = 화면 표시 ON(D=1), 커서 ON(C=1), 커서 깜빡임 OFF(B=0) [cite: 4758-4787]
+    write_instruction(0x0e); 
+    delay_m(1);
+    
+    // 정석: 0x01 = 화면 전체를 지우고 커서를 (0,0) 위치로 이동 [cite: 4731-4733]
+    write_instruction(0x01); 
+    delay_m(1);
+    
+    // (참고: 이 코드에는 0x06(엔트리 모드: 커서 오른쪽 이동)이 빠져있으나 [cite: 4741-4756], 
+    //  기본값으로 동작하거나 큰 문제가 없을 수 있습니다.)
+}
+
+/*
+ * 쉬운 설명: 숫자(0~255)를 2자리 문자열(예: " 5", "12")로 바꿔 LCD에 씁니다.
+ * 정석 설명: 100을 초과하는 값은 무시하고, 10의 자리와 1의 자리를 분리하여
+ * 아스키 문자로 변환 후 전송합니다. 10의 자리가 0이면 공백(' ')을 출력합니다.
+ */
+void NumbertoTwoDigit(int a)
+{
+    char dummy_10;
+    char dummy_1;
+
+    dummy_10 = a / 100; // 100의 자리 (이 함수에서는 사실상 무시됨)
+    a = (a - dummy_10 * 100);
+
+    dummy_10 = a / 10; // 10의 자리
+    dummy_1 = (a - dummy_10 * 10) / 1 ; // 1의 자리
+
+    if(dummy_10 == 0)
+    {
+        write_data(' '); // 10의 자리가 0이면 공백 출력
+    }
+    else
+    {
+        write_data(dummy_10 + 0x30); // 10의 자리 숫자를 문자로 변환(예: 1 -> '1')
+    }
+    write_data(dummy_1 + 0x30); // 1의 자리 숫자를 문자로 변환
+}
+
+/*
+ * 쉬운 설명: 숫자(0~9999)를 4자리 문자열(예: " 123", "1023")로 바꿔 LCD에 씁니다.
+ * 정석 설명: 1000, 100, 10, 1의 자리를 각각 분리하여 
+ * 아스키 문자로 변환 후 전송합니다. 상위 자리가 0이면 공백(' ')을 출력합니다.
+ */
+void NumbertoFourDigit(int a)
+{
+    dummy_1000 = a / 1000; // 1000의 자리
+    dummy_100 = (a - dummy_1000 * 1000) / 100; // 100의 자리
+    dummy_10 = (a - dummy_1000 * 1000 - dummy_100 * 100) / 10; // 10의 자리
+    dummy_1 = (a - dummy_1000 * 1000 - dummy_100 * 100 - dummy_10 * 10) / 1; // 1의 자리
+
+    // 1000의 자리가 0이면 공백, 아니면 숫자 출력
+    if(dummy_1000 == 0)
+    {
+        write_data(' ');
+    }
+    else
+    {
+        write_data(dummy_1000 + 0x30); // 1000의 자리 숫자를 문자로
+    }
+
+    // 100의 자리가 0이고, 1000의 자리도 0이었으면(a < 100) 공백 출력
+    if((dummy_100 == 0) && (a < 100)) 
+    {
+        write_data(' ');
+    }
+    else
+    {
+        write_data(dummy_100 + 0x30); // 100의 자리 숫자를 문자로
+    }
+
+    // 10의 자리가 0이고, 100의 자리도 0이었으면(a < 10) 공백 출력
+    if((dummy_10 == 0) && (a < 10))
+    {
+        write_data(' ');
+    }
+    else
+    {
+        write_data(dummy_10 + 0x30); // 10의 자리 숫자를 문자로
+    }
+
+    write_data(dummy_1 + 0x30); // 1의 자리는 무조건 출력
+}
+
+/*
+ * 쉬운 설명: "Hello" 같은 문자열을 LCD에 한 글자씩 끝까지 써줍니다.
+ * 정석 설명: 문자열의 시작 주소(포인터 *pt)를 받아, 
+ * 문자열의 끝(NULL, '\0')을 만날 때까지 `write_data` 함수를 반복 호출합니다.
+ * (참고: 조건문이 아스키 코드 범위로 되어있으나, 
+ * 일반적으로 `while(*pt != '\0')` 또는 `while(*pt)`를 사용합니다.)
+ */
+void write_string(char *pt)  //string으로 아스키 문자열을 출력 가능
+{
+    // 포인터가 가리키는 문자가 출력 가능한 아스키 코드 범위(' ' ~ '~')에 있는 동안 반복
+    while((*pt >= ' ') && (*pt <= '~'))
+    {
+        write_data(*pt); // 현재 포인터가 가리키는 문자를 LCD에 쓴다.
+        *pt++;           // 포인터를 다음 문자로 이동시킨다.
+    }
+}
+
+/*
+ * (이 프로그램의 main에서는 사용되지 않음)
+ * 쉬운 설명: 숫자 1개를 8자리 2진수(예: 0101 0101)로 바꿔 LCD에 씁니다.
+ * 정석 설명: 10진수(a)를 2로 계속 나누면서 나머지를 배열에 저장하여 
+ * 8비트 2진수 문자열로 변환한 뒤 출력합니다.
+ */
+void NumbertoBinary(char a)
+{
+    char Binary[8];
+    char temp;
+    int i;
+    // 2로 나눈 나머지를 끝자리(7)부터 채워 넣음
+    for (i = 7; i >= 0; i--)
+    {
+        temp = a - ((a/2) * 2); // (a % 2)와 동일
+        Binary[i] = temp + '0'; // 0 또는 1을 '0' 또는 '1' 문자로 변환
+        a = a / 2;
+    }
+    // 8자리 2진수 문자열 출력
+    for (i = 0; i < 8; i++)
+    {
+        write_data(Binary[i]);
+        if (i == 3) // 4자리씩 띄어쓰기
+        {
+            write_data(' ');
+        }
+    }
+}
+
+/*
+ * (이 프로그램의 main에서는 사용되지 않음)
+ * 쉬운 설명: 숫자 1개를 "0x"가 붙는 16진수(예: 0x3A)로 바꿔 LCD에 씁니다.
+ * 정석 설명: 10진수(a)를 16으로 나눈 몫(상위 4비트)과 나머지(하위 4비트)를 구하고,
+ * `Hex_convert` 함수를 이용해 16진수 문자로 변환하여 출력합니다.
+ */
+void NumbertoHex(char a)
+{
+    char hex_value[4] = {'0','x','0','0'}; // "0x00" 형태의 문자열 준비
+
+    hex_value[2] = a / 16; // 상위 4비트 (몫)
+    hex_value[3] = a - hex_value[2]*16; // 하위 4비트 (나머지, a % 16)
+
+    write_data(hex_value[0]); // '0'
+    write_data(hex_value[1]); // 'x'
+    Hex_convert(hex_value[2]); // 상위 4비트 변환 출력
+    Hex_convert(hex_value[3]); // 하위 4비트 변환 출력
+}
+
+/*
+ * (이 프로그램의 main에서는 사용되지 않음)
+ * 쉬운 설명: 16진수 계산에 필요한 함수. 10~15를 'A'~'F' 문자로 바꿔줍니다.
+ * 정석 설명: 0~15 사이의 4비트 값을 아스키 16진수 문자로 변환합니다.
+ */
+void Hex_convert(char a)
+{
+    char hex_convert;
+    if (a < 10) // 0~9
+    {
+        hex_convert = a + '0'; // 0~9 -> '0'~'9'
+    }
+    else // 10~15
+    {
+        hex_convert = a - 10 + 'A'; // 10~15 -> 'A'~'F'
+    }
+    write_data(hex_convert);
+}
+
+/*
+ * 쉬운 설명: MCU를 잠시 기다리게 하는 함수입니다. (약 m * 1ms)
+ * 정석 설명: 이중 for 루프를 사용하여 CPU가 아무 작업도 하지 않고 시간(클럭)을
+ * 소비하도록 만듭니다. `j<2100` 값은 16MHz 클럭 기준 약 1ms를 소요하도록
+ * 실험적으로 맞춘 값(Nop-Operation)입니다.
+ */
+void delay_m(unsigned int m)
+{
+    unsigned int i, j;
+    for(i=0; i<m; i++) // m 밀리초
+    {
+        for(j=0; j<2100; j++) // 약 1 밀리초
+        {
+            ; // 아무것도 하지 않음 (NOP)
+        }
+    }
+}
