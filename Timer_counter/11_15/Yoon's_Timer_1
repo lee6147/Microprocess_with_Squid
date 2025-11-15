@@ -1,0 +1,260 @@
+//1113_Timer Counter
+#include <iom128v.h>
+void write_data(char d);
+void write_instruction(char i); //위치값
+void lcd_init(void);
+void NumbertoTwoDigit(int a);
+void NumbertoFourDigit(int a);
+void write_string(char *pt);
+void NumbertoBinary(char a);
+void NumbertoHex(char a);
+void Hex_convert(char a);
+void delay_m(unsigned int m);
+
+unsigned int ADC_Converter(char channel);
+unsigned int ADC_result;
+void DectoFloat(int a); //1023 => 5.00    0 => 0.00 소수점 2자리까지
+
+char dummy_1000, dummy_100, dummy_10, dummy_1;
+unsigned int sec,min,count;
+unsigned int volt_digital; // char으로 하면 2bit가 사라짐
+
+int main(void)
+{
+    DDRG = 0x07;
+    DDRC = 0xff;
+    DDRB = 0x01;
+    
+    lcd_init();
+    ADMUX = ( (1 << REFS1) | (1 << REFS1) | (0 << ADLAR) | (0 << MUX1) | (0 << MUX0));  // 1100 0001
+    ADCSRA = ((1 << ADEN) | (0 << ADSC) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0)); // 1000 0111
+    
+    TCCR0 = (0 << WGM01) | (0 << WGM00) |( 0 << COM01) | (0 << COM00) | (1 << CS02) | (0 << CS01) | (1 << CS00); //wave generation mode / counter0번의 비트 1, 0번
+    TIMSK = (0 << OCIE0) | (1 << TOIE0);
+    SREG |= 0x80;
+    
+    while(1)
+    {
+        if(sec == 60){
+            sec = 0;
+            min++;
+        }
+
+        write_instruction(0x80);
+        NumbertoTwoDigit(min);
+        write_data(':');
+        NumbertoTwoDigit(sec);
+    }
+}
+
+#pragma interrupt_handler timer0_ovf_isr:iv_TIM0_OVF // 일정 개수가 카운트가 되면 counter가 interrupt 실행 / overflow
+void timer0_ovf_isr(void)
+{
+    TCNT0=131;
+    count++;  // 16M / 128분주 / (256-131) = 1000
+    if(count == 1000){
+        count = 0;
+        sec++;
+    }
+}
+
+
+void DectoFloat(int a)
+{
+    float Float;
+    int iInt, ifrac, ten, one;
+    float Dec = (float)a;
+    Float = (5.0f / 1023.0f) * Dec;
+
+    iInt = (int)Float;
+    ifrac = (int)((Float-iInt)*100.0f);
+
+    ten = ifrac / 10;
+    one = ifrac - (ten * 10);
+
+    write_data(iInt + 0x30);
+    write_data('.');
+    write_data(ten + 0x30);
+    write_data(one + 0x30);
+    write_data('V');
+}
+
+unsigned int ADC_Converter(char channel)
+{
+    ADMUX = ((ADMUX & 0xe0) | channel);
+           // ADMUX 값 초기화  // 채널값에 따라 채널 지정 PF0,1,2
+
+    ADCSRA |= 1 << ADSC; // 1100 0111
+    while(ADCSRA & 0x40);
+    return ADC;
+
+}
+
+void write_data(char d)
+{
+    PORTG = 0x06;
+    delay_m(1);
+    PORTC = d;
+    delay_m(1);
+    PORTG = 0x04;
+}
+
+void write_instruction(char i)
+{
+    PORTG = 0x02;
+    delay_m(1);
+    PORTC = i;
+    delay_m(1);
+    PORTG = 0x00;
+}
+
+void lcd_init(void)
+{
+    write_instruction(0x30);
+    delay_m(15);
+    write_instruction(0x30);
+    delay_m(1);
+    write_instruction(0x30);
+    delay_m(1);
+    write_instruction(0x30);
+    delay_m(1);
+    write_instruction(0x38);
+    delay_m(1);
+    write_instruction(0x0e);
+    delay_m(1);
+    write_instruction(0x01);
+    delay_m(1);
+}
+
+void NumbertoTwoDigit(int a)
+{
+
+    char dummy_10;
+    char dummy_1;
+
+    dummy_10 = a / 100;
+    a = (a - dummy_10 * 100);
+
+    dummy_10 = a / 10;
+    dummy_1 = (a - dummy_10 * 10) / 1 ;
+
+    if(dummy_10 == 0)
+    {
+        write_data(' ');
+    }
+    else
+    {
+        write_data(dummy_10 + 0x30);
+    }
+    write_data(dummy_1 + 0x30);
+}
+
+void NumbertoFourDigit(int a)
+{
+
+    dummy_1000 = a / 1000;
+    dummy_100 = (a - dummy_1000 * 1000) / 100;
+    dummy_10 = (a - dummy_1000 * 1000 - dummy_100 * 100) / 10;
+    dummy_1 = (a - dummy_1000 * 1000 - dummy_100 * 100 - dummy_10 * 10) / 1;
+
+    if(dummy_1000 == 0)
+    {
+        write_data(' ');
+    }
+    else
+    {
+        write_data(dummy_1000 + 0x30);
+    }
+
+    if((dummy_100 == 0) && (a < 100))
+    {
+        write_data(' ');
+    }
+    else
+    {
+        write_data(dummy_100 + 0x30);
+    }
+
+    if((dummy_10 == 0) && (a < 10))
+    {
+        write_data(' ');
+    }
+    else
+    {
+        write_data(dummy_10 + 0x30);
+    }
+
+    write_data(dummy_1 + 0x30);
+}
+
+void write_string(char *pt)  //string으로 아스키 문자열을 출력 가능
+{
+
+    while((*pt >= ' ') && (*pt <= '~'))   //포인터 pt가 0x20보다 크거나 같거나 0x7f보다 작거나 같은 조건을 모두 만족하면 (*pt >= 0x20) && (*pt <= 0x7e)
+    {
+        write_data(*pt); //포인터 pt를 출력함
+        *pt++; //작성한 pt를 증가시킴
+    }
+}
+
+void NumbertoBinary(char a)
+{
+    char Binary[8];
+    char temp;
+    int i;
+    for (i = 7; i >= 0; i--)
+    {
+        temp = a - ((a/2) * 2);
+        Binary[i] = temp + '0';
+        a = a / 2;
+    }
+    for (i = 0; i < 8; i++)
+    {
+        write_data(Binary[i]);
+        if (i == 3)
+        {
+            write_data(' ');
+        }
+    }
+}
+
+void NumbertoHex(char a)
+{
+    char hex_value[4] = {'0','x','0','0'};
+
+    hex_value[2] = a / 16;
+    hex_value[3] = a - hex_value[2]*16;
+
+    write_data(hex_value[0]);
+    write_data(hex_value[1]);
+    Hex_convert(hex_value[2]);
+    Hex_convert(hex_value[3]);
+}
+
+void Hex_convert(char a)
+{
+    char hex_convert;
+    if (a < 10)
+    {
+        hex_convert = a + '0';
+    }
+    else
+    {
+        hex_convert = a - 10 + 'A';
+    }
+    write_data(hex_convert);
+}
+
+void delay_m(unsigned int m)
+{
+    unsigned int i, j;
+    for(i=0; i<m; i++)
+    {
+        for(j=0; j<2100; j++)
+        {
+            ;
+        }
+    }
+}
+
+
