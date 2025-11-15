@@ -1,0 +1,289 @@
+//1114_Timer Counter
+#include <iom128v.h>
+
+// 함수 원형 선언
+void write_data(char d);
+void write_instruction(char i);
+void lcd_init(void);
+void NumbertoTwoDigit(int a);
+void NumbertoFourDigit(int a);
+void write_string(char *pt);
+void NumbertoBinary(char a);
+void NumbertoHex(char a);
+void Hex_convert(char a);
+void delay_m(unsigned int m);
+unsigned int ADC_Converter(char channel);
+void DectoFloat(int a);
+
+// 전역 변수
+unsigned int ADC_result;
+char dummy_1000, dummy_100, dummy_10, dummy_1;
+unsigned int sec, min, count;
+unsigned int volt_digital;
+unsigned int F_oc_kHz; // << 수정됨: 계산된 주파수를 저장할 변수
+
+int main(void)
+{
+    // 포트 설정 (폐하의 회로도 유지)
+    DDRG = 0x07; // PORTG.0(E), 1(R/W), 2(RS) 출력
+    DDRC = 0xff; // PORTC LCD 데이터 버스 출력
+    DDRB = 0x10; // PORTB.4 (OC0) 핀 출력
+
+    // 초기화
+    lcd_init();
+
+    // ADMUX 설정 (2.56V 내부 레퍼런스, ADC 1번 채널 선택)
+    // << 수정됨: REFS1 중복을 REFS0로 변경 (2.56V 내부 레퍼런스)
+    ADMUX = ( (1 << REFS1) | (1 << REFS0) | (0 << ADLAR) | (1 << MUX0) );
+    // ADCSRA 설정 (ADC 활성화, 프리스케일러 128)
+    ADCSRA = ((1 << ADEN) | (0 << ADSC) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0)); //0x87
+
+    // 타이머/카운터 0 설정
+    // << 수정됨: TCCR0 설정 (CTC 모드, OC0 핀 토글, 분주비 1)
+    TCCR0 = ((1 << WGM01) | (0 << WGM00) |(0 << COM01) | (1 << COM00) | (0 << CS02) | (0 << CS01) | (1 << CS00));
+
+    // 타이머 인터럽트 마스크 설정
+    // << 수정됨: CTC 모드이므로 TOIE0(오버플로우)는 제외하고 OCIE0(비교 일치)만 활성화
+    TIMSK = (1 << OCIE0);
+
+    // 전역 인터럽트 활성화
+    SREG |= 0x80;
+
+    while(1)
+    {
+        // 1. ADC 0번 채널에서 값 읽기 (0~1023)
+        ADC_result = ADC_Converter(0);
+
+        // 2. ADC 값을 8비트(0~255)로 스케일링하여 OCR0 레지스터에 저장
+        // << 수정됨: 10비트 ADC 값을 8비트 OCR0 레지스터에 맞게 스케일링 (_result / 4)
+        OCR0 = ADC_result >> 2;
+
+        // 3. 주파수 계산 (f_oc = 16,000,000 / (2 * N * (1 + OCR0)))
+        // N=1 (분주비 1) 이므로, f_oc = 8,000,000 / (1 + OCR0)
+        // kHz 단위로 변환: F_oc_kHz = 8000 / (1 + OCR0)
+        F_oc_kHz = 8000 / (1 + OCR0); // << 수정됨: 주파수 계산 로직 추가
+
+        // --- LCD 표시 ---
+
+        // 4. 첫 번째 줄에 원본 ADC 값과 스케일링된 OCR0 값 표시
+        write_instruction(0x80); // 첫 번째 줄, 첫 번째 칸
+        NumbertoFourDigit(ADC_result);
+        write_instruction(0x86); // 첫 번째 줄, 7번째 칸
+        NumbertoFourDigit(OCR0);
+
+        // 5. 두 번째 줄에 계산된 주파수(kHz) 값 표시
+        write_instruction(0xc0); // 두 번째 줄, 첫 번째 칸
+        NumbertoFourDigit(F_oc_kHz); // << 수정됨: 계산된 주파수 값 표시
+        write_string(" kHz");
+    }
+}
+
+// 타이머 0 비교 일치 (CTC) 인터럽트 서비스 루틴
+#pragma interrupt_handler timer0_comp_isr:iv_TIM0_COMP
+void timer0_comp_isr(void)
+{
+    // 이 함수는 TCNT0 == OCR0 일 때마다 호출됩니다.
+    // (현재는 특별한 동작 없음)
+}
+
+// (이하 함수들은 이전 코드와 동일하나, write_data/write_instruction 수정의 영향을 받음)
+
+void DectoFloat(int a)
+{
+    float Float;
+    int iInt, ifrac, ten, one;
+    float Dec = (float)a;
+    Float = (5.0f / 1023.0f) * Dec;
+
+    iInt = (int)Float;
+    ifrac = (int)((Float-iInt)*100.0f);
+
+    ten = ifrac / 10;
+    one = ifrac - (ten * 10);
+
+    write_data(iInt + 0x30);
+    write_data('.');
+    write_data(ten + 0x30);
+    write_data(one + 0x30);
+    write_data('V');
+}
+
+unsigned int ADC_Converter(char channel)
+{
+    ADMUX = ((ADMUX & 0xe0) | channel); // 채널 선택
+    ADCSRA |= 1 << ADSC; // 변환 시작
+    while(ADCSRA & 0x40); // 변환 완료 대기
+    return ADC; // ADC 값 반환 (ADCL + ADCH)
+}
+
+// << 수정됨: R/W=0 (쓰기) 및 E 핀 펄스 로직 적용
+void write_data(char d)
+{
+    PORTG = 0x04; // RS=1, R/W=0, E=0
+    PORTC = d;    // 데이터 전송
+    delay_m(1);
+    PORTG = 0x05; // E=1 (펄스 시작)
+    delay_m(1);
+    PORTG = 0x04; // E=0 (펄스 끝)
+    delay_m(1);   // 처리 시간 대기
+}
+
+// << 수정됨: R/W=0 (쓰기) 및 E 핀 펄스 로직 적용
+void write_instruction(char i)
+{
+    PORTG = 0x00; // RS=0, R/W=0, E=0
+    PORTC = i;    // 명령어 전송
+    delay_m(1);
+    PORTG = 0x01; // E=1 (펄스 시작)
+    delay_m(1);
+    PORTG = 0x00; // E=0 (펄스 끝)
+    delay_m(1);   // 처리 시간 대기
+}
+
+void lcd_init(void)
+{
+    // (이 함수는 내부적으로 수정된 write_instruction을 호출하므로 자동으로 올바르게 동작함)
+    write_instruction(0x30);
+    delay_m(15);
+    write_instruction(0x30);
+    delay_m(1);
+    write_instruction(0x30);
+    delay_m(1);
+    write_instruction(0x30);
+    delay_m(1);
+    write_instruction(0x38); // 8비트, 2라인, 5x7 도트
+    delay_m(1);
+    write_instruction(0x0e); // 표시 ON, 커서 ON, 깜빡임 OFF
+    delay_m(1);
+    write_instruction(0x01); // 화면 클리어
+    delay_m(1);
+}
+
+void NumbertoTwoDigit(int a)
+{
+    char dummy_10;
+    char dummy_1;
+
+    dummy_10 = a / 100;
+    a = (a - dummy_10 * 100);
+
+    dummy_10 = a / 10;
+    dummy_1 = (a - dummy_10 * 10) / 1 ;
+
+    if(dummy_10 == 0)
+    {
+        write_data(' ');
+    }
+    else
+    {
+        write_data(dummy_10 + 0x30);
+    }
+    write_data(dummy_1 + 0x30);
+}
+
+void NumbertoFourDigit(int a)
+{
+
+    dummy_1000 = a / 1000;
+    dummy_100 = (a - dummy_1000 * 1000) / 100;
+    dummy_10 = (a - dummy_1000 * 1000 - dummy_100 * 100) / 10;
+    dummy_1 = (a - dummy_1000 * 1000 - dummy_100 * 100 - dummy_10 * 10) / 1;
+
+    if(dummy_1000 == 0)
+    {
+        write_data(' ');
+    }
+    else
+    {
+        write_data(dummy_1000 + 0x30);
+    }
+
+    if((dummy_100 == 0) && (a < 100))
+    {
+        write_data(' ');
+    }
+    else
+    {
+        write_data(dummy_100 + 0x30);
+    }
+
+    if((dummy_10 == 0) && (a < 10))
+    {
+        write_data(' ');
+    }
+    else
+    {
+        write_data(dummy_10 + 0x30);
+    }
+
+    write_data(dummy_1 + 0x30);
+}
+
+void write_string(char *pt)
+{
+    while((*pt >= ' ') && (*pt <= '~'))
+    {
+        write_data(*pt);
+        pt++;
+    }
+}
+
+void NumbertoBinary(char a)
+{
+    char Binary[8];
+    char temp;
+    int i;
+    for (i = 7; i >= 0; i--)
+    {
+        temp = a - ((a/2) * 2);
+        Binary[i] = temp + '0';
+        a = a / 2;
+    }
+    for (i = 0; i < 8; i++)
+    {
+        write_data(Binary[i]);
+        if (i == 3)
+        {
+            write_data(' ');
+        }
+    }
+}
+
+void NumbertoHex(char a)
+{
+    char hex_value[4] = {'0','x','0','0'};
+
+    hex_value[2] = a / 16;
+    hex_value[3] = a - hex_value[2]*16;
+
+    write_data(hex_value[0]);
+    write_data(hex_value[1]);
+    Hex_convert(hex_value[2]);
+    Hex_convert(hex_value[3]);
+}
+
+void Hex_convert(char a)
+{
+    char hex_convert;
+    if (a < 10)
+    {
+        hex_convert = a + '0';
+    }
+    else
+    {
+        hex_convert = a - 10 + 'A';
+    }
+    write_data(hex_convert);
+}
+
+void delay_m(unsigned int m)
+{
+    unsigned int i, j;
+    for(i=0; i<m; i++)
+    {
+        for(j=0; j<2100; j++)
+        {
+            ;
+        }
+    }
+}
