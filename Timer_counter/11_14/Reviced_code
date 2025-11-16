@@ -52,7 +52,7 @@ int main(void)
     while(1)
     {
         // 1. ADC 0번 채널에서 값 읽기 (0~1023)
-        ADC_result = ADC_Converter(0);
+        ADC_result = ADC_Converter(2);
 
         // 2. ADC 값을 8비트(0~255)로 스케일링하여 OCR0 레지스터에 저장
         // << 수정됨: 10비트 ADC 값을 8비트 OCR0 레지스터에 맞게 스케일링 (_result / 4)
