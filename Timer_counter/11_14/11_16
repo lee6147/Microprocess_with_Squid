@@ -1,0 +1,345 @@
+#include <iom128v.h>
+
+// 함수 원형 선언
+void write_data(char d);
+void write_instruction(char i);
+void lcd_init(void);
+void NumbertoTwoDigit(int a);
+void NumbertoFourDigit(int a);
+void write_string(char *pt);
+void NumbertoBinary(char a);
+void NumbertoHex(char a);
+void Hex_convert(char a);
+void delay_m(unsigned int m);
+unsigned int ADC_Converter(char channel);
+void DectoFloat(int a);
+void F_oc(int a); // 2번 블록의 함수 원형 추가
+
+// 전역 변수
+unsigned int ADC_result;
+char dummy_1000, dummy_100, dummy_10, dummy_1;
+unsigned int sec, min, count;
+unsigned int volt_digital;
+
+int main(void)
+{
+    // 포트 설정 (회로도 유지)
+    DDRG = 0x07; // PORTG.0(E), 1(R/W), 2(RS) 출력
+    DDRC = 0xff; // PORTC LCD 데이터 버스 출력
+    DDRB = 0x10; // PORTB.4 (OC0) 핀 출력
+
+    // 초기화
+    lcd_init();
+
+    // ADMUX 설정 (2.56V 내부 레퍼런스, ADC 2번 채널 초기 선택)
+    ADMUX = ( (1 << REFS1) | (1 << REFS0) | (0 << ADLAR) | (2 << MUX0) ); // PF2 = 2번 채널
+    // ADCSRA 설정 (ADC 활성화, 프리스케일러 128)
+    ADCSRA = ((1 << ADEN) | (0 << ADSC) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0)); //0x87
+
+    // 타이머/카운터 0 설정 (CTC 모드, OC0 핀 토글, 분주비 1)
+    TCCR0 = ((1 << WGM01) | (0 << WGM00) |(0 << COM01) | (1 << COM00) | (0 << CS02) | (0 << CS01) | (1 << CS00));
+
+    // 타이머 인터럽트 마스크 설정 (LCD 정상 동작을 위해 불필요한 인터럽트 비활성화)
+    TIMSK = 0x00;
+
+    // 전역 인터럽트 활성화
+    SREG |= 0x80;
+
+    while(1)
+    {
+        // 1. ADC 2번 채널(PF2)에서 값 읽기
+        ADC_result = ADC_Converter(2);
+
+        // 2. ADC 값을 8비트(0~255)로 스케일링하여 OCR0 레지스터에 저장
+        OCR0 = ADC_result >> 2;
+
+        // --- LCD 표시 (1번 블록 의도 반영) ---
+
+        // 3. 첫 번째 줄에 원본 ADC 값과 스케일링된 OCR0 값 표시
+        write_instruction(0x80); // 첫 번째 줄, 첫 번째 칸
+        NumbertoFourDigit(ADC_result);
+        write_instruction(0x86); // 첫 번째 줄, 7번째 칸
+        NumbertoFourDigit(OCR0);
+
+        // 4. 두 번째 줄에 계산된 주파수 표시 (2번 블록 함수 호출)
+        write_instruction(0xc0); // 두 번째 줄, 첫 번째 칸
+        F_oc(OCR0); 
+    }
+}
+
+// 타이머 0 비교 일치 (CTC) 인터럽트 서비스 루틴
+#pragma interrupt_handler timer0_comp_isr:iv_TIM0_COMP
+void timer0_comp_isr(void)
+{
+    // TIMSK = 0x00 이므로 이 함수는 현재 호출되지 않습니다.
+}
+
+// (이하 함수들은 이전 코드와 동일)
+
+void DectoFloat(int a)
+{
+    float Float;
+    int iInt, ifrac, ten, one;
+    float Dec = (float)a;
+    Float = (5.0f / 1023.0f) * Dec;
+
+    iInt = (int)Float;
+    ifrac = (int)((Float-iInt)*100.0f);
+
+    ten = ifrac / 10;
+    one = ifrac - (ten * 10);
+
+    write_data(iInt + 0x30);
+    write_data('.');
+    write_data(ten + 0x30);
+    write_data(one + 0x30);
+    write_data('V');
+}
+
+unsigned int ADC_Converter(char channel)
+{
+    ADMUX = ((ADMUX & 0xe0) | channel); // 채널 선택
+    ADCSRA |= 1 << ADSC; // 변환 시작
+    while(ADCSRA & 0x40); // 변환 완료 대기
+    return ADC; // ADC 값 반환 (ADCL + ADCH)
+}
+
+// (수정된 LCD 함수) R/W=0 (쓰기) 및 E 핀 펄스 로직 적용
+void write_data(char d)
+{
+    PORTG = 0x04; // RS=1 (Data), R/W=0 (Write), E=0
+    PORTC = d;    // 데이터 전송
+    delay_m(1);
+    PORTG = 0x05; // E=1 (펄스 시작)
+    delay_m(1);
+    PORTG = 0x04; // E=0 (펄스 끝)
+    delay_m(1);   // 처리 시간 대기
+}
+
+// (수정된 LCD 함수) R/W=0 (쓰기) 및 E 핀 펄스 로직 적용
+void write_instruction(char i)
+{
+    PORTG = 0x00; // RS=0 (Instruction), R/W=0 (Write), E=0
+    PORTC = i;    // 명령어 전송
+    delay_m(1);
+    PORTG = 0x01; // E=1 (펄스 시작)
+    delay_m(1);
+    PORTG = 0x00; // E=0 (펄스 끝)
+    delay_m(1);   // 처리 시간 대기
+}
+
+// (수정된 LCD 초기화 함수)
+void lcd_init(void)
+{
+    write_instruction(0x30);
+    delay_m(15); // 전원 켜지고 15ms 이상 대기
+    write_instruction(0x30);
+    delay_m(5);  // 4.1ms 이상 대기 (넉넉하게 5ms)
+    write_instruction(0x30);
+    delay_m(1);  // 100us 이상 대기 (넉넉하게 1ms)
+    
+    // 8비트, 2라인, 5x7 도트 설정
+    write_instruction(0x38); 
+    delay_m(2); 
+
+    // 표시 ON, 커서 ON, 깜빡임 OFF
+    write_instruction(0x0e); 
+    delay_m(2); 
+
+    // 화면 클리어
+    write_instruction(0x01); 
+    delay_m(5);  // 1.64ms보다 길게 (넉넉하게 5ms)
+
+    // 엔트리 모드 설정 (필수)
+    // 글자 쓰고 커서를 오른쪽으로 이동
+    write_instruction(0x06); 
+    delay_m(2); 
+}
+
+void NumbertoTwoDigit(int a)
+{
+    char dummy_10;
+    char dummy_1;
+
+    dummy_10 = a / 100;
+    a = (a - dummy_10 * 100);
+
+    dummy_10 = a / 10;
+    dummy_1 = (a - dummy_10 * 10) / 1 ;
+
+    if(dummy_10 == 0)
+    {
+        write_data(' ');
+    }
+    else
+    {
+        write_data(dummy_10 + 0x30);
+    }
+    write_data(dummy_1 + 0x30);
+}
+
+void NumbertoFourDigit(int a)
+{
+    dummy_1000 = a / 1000;
+    dummy_100 = (a - dummy_1000 * 1000) / 100;
+    dummy_10 = (a - dummy_1000 * 1000 - dummy_100 * 100) / 10;
+    dummy_1 = (a - dummy_1000 * 1000 - dummy_100 * 100 - dummy_10 * 10) / 1;
+
+    if(dummy_1000 == 0)
+    {
+        write_data(' ');
+    }
+    else
+    {
+        write_data(dummy_1000 + 0x30);
+    }
+
+    if((dummy_100 == 0) && (a < 100))
+    {
+        write_data(' ');
+    }
+    else
+    {
+        write_data(dummy_100 + 0x30);
+    }
+    
+    // << 수정됨: 엉뚱한 위치에 있던 SREG |= 0x80; 코드 삭제
+
+    if((dummy_10 == 0) && (a < 10))
+    {
+        write_data(' ');
+    }
+    else
+    {
+        write_data(dummy_10 + 0x30);
+    }
+
+    write_data(dummy_1 + 0x30);
+}
+
+void write_string(char *pt)
+{
+    while((*pt >= ' ') && (*pt <= '~'))
+    {
+        write_data(*pt);
+        pt++;
+    }
+}
+
+void NumbertoBinary(char a)
+{
+    char Binary[8];
+    char temp;
+    int i;
+    for (i = 7; i >= 0; i--)
+    {
+        temp = a - ((a/2) * 2);
+        Binary[i] = temp + '0';
+        a = a / 2;
+    }
+    for (i = 0; i < 8; i++)
+    {
+        write_data(Binary[i]);
+        if (i == 3)
+        {
+            write_data(' ');
+        }
+    }
+}
+
+void NumbertoHex(char a)
+{
+    char hex_value[4] = {'0','x','0','0'};
+
+    hex_value[2] = a / 16;
+    hex_value[3] = a - hex_value[2]*16;
+
+    write_data(hex_value[0]);
+    write_data(hex_value[1]);
+    Hex_convert(hex_value[2]);
+    Hex_convert(hex_value[3]);
+}
+
+void Hex_convert(char a)
+{
+    char hex_convert;
+    if (a < 10)
+    {
+        hex_convert = a + '0';
+    }
+    else
+    {
+        hex_convert = a - 10 + 'A';
+    }
+    write_data(hex_convert);
+}
+
+void delay_m(unsigned int m)
+{
+    unsigned int i, j;
+    for(i=0; i<m; i++)
+    {
+        for(j=0; j<2100; j++)
+        {
+            ;
+        }
+    }
+}
+
+// (2번 블록 함수 정의)
+void F_oc(int a)
+{
+    float F_oc;
+    int iInt, ifrac, ten, one;
+    F_oc = 8000.0f / (float)(1+a); // kHz 단위로 바로 계산
+
+    if (F_oc >= 1000.0f) { // 1000kHz (1MHz) 이상인 경우
+        F_oc = F_oc / 1000.0f; // MHz로 변환
+        iInt = (int)F_oc;
+        ifrac = (int)((F_oc - iInt) * 100.0f + 0.5f); // 소수점 둘째 자리
+
+        write_data(iInt + 0x30); // 정수부
+        write_data('.');
+
+        ten = ifrac / 10;
+        one = ifrac - (ten * 10);
+
+        write_data(ten + 0x30); // 소수점 첫째
+        write_data(one + 0x30); // 소수점 둘째
+        write_string("MHz  ");
+
+    }
+    else { // 1000kHz (1MHz) 미만인 경우
+        iInt = (int)F_oc;
+        ifrac = (int)((F_oc - iInt) * 100.0f + 0.5f); // 소수점 둘째 자리
+
+        if (ifrac >= 100) {
+            ifrac = 99;
+        }
+        
+        // kHz 값 표시 (최대 3자리 정수 + 소수점 2자리)
+        // NumbertoFourDigit은 4자리 정수용이라 여기서는 직접 표시
+        if (iInt >= 100) { // 100~999 kHz
+             write_data((iInt / 100) + 0x30);
+             write_data(((iInt % 100) / 10) + 0x30);
+             write_data((iInt % 10) + 0x30);
+        } else if (iInt >= 10) { // 10~99 kHz
+             write_data(' ');
+             write_data((iInt / 10) + 0x30);
+             write_data((iInt % 10) + 0x30);
+        } else { // 0~9 kHz
+             write_data(' ');
+             write_data(' ');
+             write_data(iInt + 0x30);
+        }
+        
+        write_data('.');
+
+        ten = ifrac / 10;
+        one = ifrac - (ten * 10);
+
+        write_data(ten + 0x30);
+        write_data(one + 0x30);
+        write_string("kHz");
+    }
+}
