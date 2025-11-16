@@ -1,8 +1,15 @@
+//11.15//
 I had accpeted Yoon's code, but it worked on the right track.
 So I reviced code. 
 Reviced code has a issue.
  -Lcd doesn't work 
 But I captured it'swave on oscilloscope.
+
+//11.16//
+I found what is error in the code and fixed it.
+Now Lcd works with any problem. 
 I did memo all of above details at notion. 
+
 Please check below notion link.
+
 https://www.notion.so/11-15-_-2acdafe4574c80e0a262f1ddc17f358c?t=new
