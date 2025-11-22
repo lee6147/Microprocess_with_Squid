@@ -1,0 +1,114 @@
+Interrupt Vectors
+00000 940C 0047 JMP	__start|__text_start
+Program Code (text area)
+_exit:
+    00069 CFFF      RJMP	_exit
+FILE: C:\Users\user\OneDrive\Desktop\마이크로프로세서\project44_0925\main.c
+(0001) #include <iom128v.h>
+(0002) 
+(0003) void delay_m(unsigned int m);
+(0004) 
+(0005) // FND에 표시할 'LOW'(0x74), 'HIGH'(0x22) 모양 데이터 배열입니다.
+(0006) unsigned char LowHigh[2] = {0x74, 0x22};
+(0007) 
+(0008) int main(void)
+(0009) {
+(0010)     // --- 1. 초기 설정 ---
+(0011) 
+(0012)     // 스위치가 연결된 E포트 4번(PE4)핀을 '입력'으로 설정합니다.
+(0013)     // DDRE 레지스터의 4번 비트만 0으로 만들어야 합니다. (2진수 11101111 = 16진수 0xef)
+(0014)     DDRE = 0xef;
+_main:
+    0006A EE8F      LDI	R24,0xEF
+    0006B B982      OUT	0x02,R24
+(0015) 
+(0016)     // FND가 연결된 D포트 8개 핀 모두를 '출력'으로 설정합니다.
+(0017)     DDRD = 0xFF;
+    0006C EF8F      LDI	R24,0xFF
+    0006D BB81      OUT	0x11,R24
+    0006E C00B      RJMP	0x007A
+(0018) 
+(0019)     // --- 2. 무한 반복 실행 ---
+(0020)     while(1)
+(0021)     {
+(0022)         // --- 3. 마스킹을 이용한 스위치 상태 확인 ---
+(0023) 
+(0024)         // PINE 레지스터 값을 읽어온 뒤, 0x10 (2진수 00010000) 가면(마스크)을 씌웁니다.
+(0025)         // '&' 연산을 통해 다른 핀의 상태는 모두 0으로 지우고,
+(0026)         // 오직 우리가 궁금한 4번 핀의 상태(0 또는 1)만 남깁니다.
+(0027) 
+(0028)         // 만약 스위치를 눌러서 4번 핀의 상태가 '1'(HIGH) 이라면?
+(0029)         if ((PINE & 0x10) == 0x10)
+    0006F B181      IN	R24,0x01
+    00070 7180      ANDI	R24,0x10
+    00071 3180      CPI	R24,0x10
+    00072 F421      BNE	0x0077
+(0030)         {
+(0031)             // FND에 'HIGH' 모양(LowHigh[1])을 출력합니다.
+(0032)             PORTD = LowHigh[0];
+    00073 9020 0100 LDS	R2,LowHigh
+    00075 BA22      OUT	0x12,R2
+(0033)         }
+    00076 C003      RJMP	0x007A
+(0034)         // 스위치를 누르지 않아서 4번 핀의 상태가 '0'(LOW) 이라면?
+(0035)         else
+(0036)         {
+(0037)             // FND에 'LOW' 모양(LowHigh[0])을 출력합니다.
+(0038)             PORTD = LowHigh[1];
+    00077 9020 0101 LDS	R2,LowHigh+1
+    00079 BA22      OUT	0x12,R2
+(0039)         }
+(0040)     }
+    0007A CFF4      RJMP	0x006F
+    0007B 9508      RET
+_delay_m:
+  i                    --> R20
+  j                    --> R22
+  m                    --> R16
+    0007C 940E 0091 CALL	push_xgsetF000
+(0041) 
+(0042)     return 0;
+(0043) }
+(0044) 
+(0045) // '잠시 멈춤' 기능을 실제로 구현하는 부분
+(0046) void delay_m(unsigned int m)
+(0047) {
+(0048)     unsigned int i, j;
+(0049)     for(i=0; i<m; i++)
+    0007E 2744      CLR	R20
+    0007F 2755      CLR	R21
+    00080 C00B      RJMP	0x008C
+(0050)     {
+(0051)         for(j=0; j<2100; j++)
+    00081 2766      CLR	R22
+    00082 2777      CLR	R23
+    00083 C002      RJMP	0x0086
+(0052)         {
+(0053)             ;
+(0054)         }
+    00084 5F6F      SUBI	R22,0xFF
+    00085 4F7F      SBCI	R23,0xFF
+    00086 3364      CPI	R22,0x34
+    00087 E0E8      LDI	R30,0x8
+    00088 077E      CPC	R23,R30
+    00089 F3D0      BCS	0x0084
+(0055)     }
+    0008A 5F4F      SUBI	R20,0xFF
+    0008B 4F5F      SBCI	R21,0xFF
+    0008C 1740      CP	R20,R16
+(0056) }
+    0008D 0751      CPC	R21,R17
+    0008E F390      BCS	0x0081
+    0008F 940C 0096 JMP	pop_xgsetF000
+push_xgsetF000:
+    00091 937A      ST	-Y,R23
+    00092 936A      ST	-Y,R22
+    00093 935A      ST	-Y,R21
+    00094 934A      ST	-Y,R20
+    00095 9508      RET
+pop_xgsetF000:
+    00096 9149      LD	R20,Y+
+    00097 9159      LD	R21,Y+
+    00098 9169      LD	R22,Y+
+    00099 9179      LD	R23,Y+
+    0009A 9508      RET

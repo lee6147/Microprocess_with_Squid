@@ -1,0 +1,88 @@
+Interrupt Vectors
+00000 940C 0046 JMP	__start|__text_start
+Program Code (text area)
+_exit:
+    00068 CFFF      RJMP	_exit
+FILE: C:\Users\user\OneDrive\Desktop\마이크로프로세서\LED_Blink_retry_9.13\main.c
+(0001) #include <iom128v.h> // 9/12
+(0002) 
+(0003) // 함수 선언
+(0004) void delay_m(unsigned int m);
+(0005) 
+(0006) int main(void)
+(0007) {
+(0008)     // PC6과 PC4 핀을 출력으로 설정합니다.
+(0009)     DDRC = 0x50;  // 0101 0000 -> DDRC 레지스터의 bit6, bit4를 1로 설정
+_main:
+    00069 E580      LDI	R24,0x50
+    0006A BB84      OUT	0x14,R24
+    0006B C00A      RJMP	0x0076
+(0010) 
+(0011)     while(1) {
+(0012)         // PORTC의 6번, 4번 핀에 HIGH 신호를 출력하여 LED를 켭니다.
+(0013)         PORTC = 0x50;  // 0101 0000 -> PC6, PC4 ON
+    0006C E580      LDI	R24,0x50
+    0006D BB85      OUT	0x15,R24
+(0014)         delay_m(500);
+    0006E EF04      LDI	R16,0xF4
+    0006F E011      LDI	R17,1
+    00070 D007      RCALL	_delay_m
+(0015) 
+(0016)         // PORTC의 모든 핀에 LOW 신호를 출력하여 LED를 끕니다.
+(0017)         PORTC = 0x00;  // 0000 0000 -> PC6, PC4 OFF
+    00071 2422      CLR	R2
+    00072 BA25      OUT	0x15,R2
+(0018)         delay_m(500);
+    00073 EF04      LDI	R16,0xF4
+    00074 E011      LDI	R17,1
+    00075 D002      RCALL	_delay_m
+(0019)     }
+    00076 CFF5      RJMP	0x006C
+    00077 9508      RET
+_delay_m:
+  i                    --> R20
+  j                    --> R22
+  m                    --> R16
+    00078 940E 008D CALL	push_xgsetF000
+(0020)     return 0;
+(0021) }
+(0022) 
+(0023) // m 밀리초(ms) 만큼 지연시키는 함수
+(0024) void delay_m(unsigned int m) {
+(0025)     unsigned int i, j;
+(0026)     for (i = 0; i < m; i++) {
+    0007A 2744      CLR	R20
+    0007B 2755      CLR	R21
+    0007C C00B      RJMP	0x0088
+(0027)         for (j = 0; j < 2100; j++) {
+    0007D 2766      CLR	R22
+    0007E 2777      CLR	R23
+    0007F C002      RJMP	0x0082
+(0028)             ; // 아무 동작도 하지 않고 시간 지연
+(0029)         }
+    00080 5F6F      SUBI	R22,0xFF
+    00081 4F7F      SBCI	R23,0xFF
+    00082 3364      CPI	R22,0x34
+    00083 E0E8      LDI	R30,0x8
+    00084 077E      CPC	R23,R30
+    00085 F3D0      BCS	0x0080
+(0030)     }
+    00086 5F4F      SUBI	R20,0xFF
+    00087 4F5F      SBCI	R21,0xFF
+    00088 1740      CP	R20,R16
+(0031) }
+    00089 0751      CPC	R21,R17
+    0008A F390      BCS	0x007D
+    0008B 940C 0092 JMP	pop_xgsetF000
+push_xgsetF000:
+    0008D 937A      ST	-Y,R23
+    0008E 936A      ST	-Y,R22
+    0008F 935A      ST	-Y,R21
+    00090 934A      ST	-Y,R20
+    00091 9508      RET
+pop_xgsetF000:
+    00092 9149      LD	R20,Y+
+    00093 9159      LD	R21,Y+
+    00094 9169      LD	R22,Y+
+    00095 9179      LD	R23,Y+
+    00096 9508      RET

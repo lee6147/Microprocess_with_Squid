@@ -1,0 +1,57 @@
+#include <iom12v.h>
+
+// 함수 선언
+void delay_ms(unsigned int m);
+
+// 7세그먼트 숫자 패턴 (부호 없는 타입으로 선언)
+unsigned char number[10] = {0x04, 0x2F, 0x18, 0x09, 0x23, 0x41, 0x40, 0x07, 0x00, 0x01};
+
+int main(void)
+{
+    // --- 변수 초기화 ---
+    int count = 0;
+    int is_up_mode = 1;
+
+    // --- 포트 설정 ---
+    DDRD = 0x7F; // PORTD 출력 설정
+    DDRE = 0xCF; // PORTE 입력 설정
+
+    // --- 메인 루프 ---
+    while(1)
+    {
+        // 역할 1: 스위치 입력 확인
+        if ((PINE & 0x10) == 0x10) {
+            is_up_mode = 1; // UP 모드
+        }
+        if ((PINE & 0x20) == 0x20) {
+            is_up_mode = 0; // DOWN 모드
+        }
+
+        // 역할 2: 로직 처리 및 출력
+        PORTD = number[count];
+
+        if (is_up_mode) { // UP 모드일 때
+            count++;
+            if (count > 9) {
+                count = 0;
+            }
+        } else { // DOWN 모드일 때
+            count--;
+            if (count < 0) {
+                count = 9;
+            }
+        }
+
+        // 역할 3: 시간 지연 (if-else 문 밖으로 이동)
+        delay_ms(500);
+    }
+    return 0;
+}
+
+// 오직 시간 지연 역할만 수행하는 함수s
+void delay_ms(unsigned int m){
+    unsigned int i, j;
+    for(i = 0; i < m; i++){
+        for(j = 0; j < 2100; j++);
+    }
+}

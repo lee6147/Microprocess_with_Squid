@@ -1,0 +1,48 @@
+#include <iom128v.h>
+#sw_A는 up 카운트  sw_B는 down 카운트
+
+void delay_m(unsigned int m);
+
+char number[10] = {0x82, 0x9F, 0xC4, 0x85, 0x99, 0xA1, 0xA0, 0x8F, 0x80, 0x89};
+int count, up = 1, down = 0;
+
+int main(void)
+{
+    DDRD = 0x7F; // x111 1111
+    DDRE = 0xCF; // xx00 xxxx
+    while(1)
+    {
+        while(up){
+            if(count == 10){
+                count = 0;
+            }
+            PORTD = number[count++];
+            delay_m(500);
+        }
+        while(down){
+            if(count == -1){
+                count = 9;
+            }
+            PORTD = number[count--];
+            delay_m(500);
+        }
+
+    }
+}
+
+void delay_m(unsigned int m){
+    unsigned int i, j;
+    for(i=0;i<m;i++){
+        if((PINE & 0x10) == 0x00){  //sw_A를 눌렀을 때
+            up = 1;
+            down = 0;
+        }
+        if((PINE & 0x20) == 0x20){  //sw_B를 눌렀을 때
+            up = 0;
+            down = 1;
+        }
+        for(j=0;j<2100;j++){
+        ;
+        }
+    }
+}

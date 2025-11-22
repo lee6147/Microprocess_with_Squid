@@ -1,0 +1,61 @@
+#include <iom128v.h>
+
+void delay_ms(unsigned int m);
+
+// 7세그먼트 숫자 패턴 (0~9)
+unsigned char number[10] = {0x04, 0x2F, 0x18, 0x09, 0x23, 0x41, 0x40, 0x07, 0x00, 0x01};
+
+int main(void)
+{
+    // --- 변수 초기화 ---
+    char count = 0;
+    char button_state = 0; // 버튼의 이전 상태 저장 (0: 떼어진 상태, 1: 눌린 상태)
+
+    // --- 포트 설정 ---
+    DDRD = 0xFF; // PORTD 전체를 출력으로 설정 (7-segment용)
+    DDRE = 0xCF; // PORTE 4번 핀(PE4)을 입력으로 설정 (0b11001111)
+
+    // --- 메인 루프 ---
+    while(1)
+    {
+        // --- 1. 버튼 입력 처리 (풀다운 회로 기준) ---
+        // 버튼이 눌렸다면 (PE4 핀에서 HIGH 신호 감지)
+        if ((PINE & 0x10) == 0x10)
+        {
+            // 이전에 버튼이 떼어진 상태(button_state == 0)였다면,
+            // '새로 눌린 것'으로 간주하고 카운트를 1 증가시킨다.
+            if (button_state == 0)
+            {
+                count++;
+                if (count == 10)
+                {
+                    count = 0;
+                }
+
+                button_state = 1; // 버튼이 '눌린 상태'임을 기억
+            }
+        }
+        // 버튼이 떼어졌다면 (PE4 핀에서 LOW 신호 감지)
+        else
+        {
+            button_state = 0; // 버튼이 '떼어진 상태'임을 기억
+        }
+
+        // --- 2. FND 출력 ---
+        // 항상 현재 count 값을 FND에 출력
+        PORTD = number[count];
+
+        // 아주 짧은 딜레이를 주어 CPU 부담을 줄이고 안정성을 높임
+        delay_ms(10);
+    }
+    return 0;
+}
+
+void delay_ms(unsigned int m)
+{
+    unsigned int i, j;
+    for(i = 0; i < m; i++)
+    {
+        for(j = 0; j < 2100; j++);
+    }
+}
