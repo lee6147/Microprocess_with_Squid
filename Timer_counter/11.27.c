@@ -1,65 +1,125 @@
+//11.27.c
 #include <iom128v.h>
 #include <macros.h>
 
 // --- 함수 선언 ---
 void delay_m(unsigned int m);
-char ADC_Converter(char channel);
+void write_data(char d);
+void write_instruction(char i);
+void lcd_init(void);
+void write_string(char *pt);
+void Write_Dec_3Digit(unsigned int a);
+unsigned char ADC_Converter(char channel);
+
+// --- 변수 ---
+unsigned char adc_value;   // 0~255 (OCR0에 들어갈 값)
+unsigned int duty_percent; // 0~100 (LCD 표시용)
 
 void main(void)
 {
-    // 1. 포트 초기화
-    // 가변저항 입력: PF0 (ADC0) -> 입력으로 설정
-    DDRF = 0x00;
-    // PWM 출력: PB4 (OC0 핀) -> 출력으로 설정해야 파형이 나감 [cite: 1689]
-    DDRB = 0x10;
+    // 1. 포트 설정
+    DDRB = 0x10; // PB4 (OC0) 출력 설정 (모터 PWM 신호)
+    DDRG = 0x07; // LCD 제어 신호
+    DDRC = 0xFF; // LCD 데이터 신호
+    DDRF = 0x00; // ADC 입력
 
-    // 2. ADC 초기화
-    // 기준전압: AREF(00), 정렬: 좌측정렬(ADLAR=1), 채널: ADC0(00000)
-    // 좌측 정렬을 쓰는 이유: 8비트(0~255) 값만 필요하므로 상위 레지스터(ADCH)만 읽기 위함
+    lcd_init();
+
+    // 2. ADC 설정 (좌측 정렬 ADLAR=1 -> 8비트 0~255 값 읽기)
+    // AREF 사용, ADC0 채널
     ADMUX = (0<<REFS1) | (0<<REFS0) | (1<<ADLAR) | (0<<MUX4) | (0<<MUX3) | (0<<MUX2) | (0<<MUX1) | (0<<MUX0);
+    // ADC 켜기(ADEN=1), 128분주(ADPS=111)
+    ADCSRA = (1<<ADEN) | (0<<ADSC) | (0<<ADFR) | (0<<ADIF) | (0<<ADIE) | (1<<ADPS2) | (1<<ADPS1) | (1<<ADPS0);
 
-    // ADC 허용(ADEN), 분주비 128 (안정적인 변환을 위해 느리게 설정)
-    ADCSRA = (1<<ADEN) | (1<<ADPS2) | (1<<ADPS1) | (1<<ADPS0);
-
-    // 3. 타이머/카운터 0 설정 (핵심: 1.95kHz 만들기)
-    // 모드: 고속 PWM (Fast PWM) -> WGM01=1, WGM00=1 [cite: 1188]
-    // 출력: 비반전 모드 (Non-Inverting) -> COM01=1, COM00=0 [cite: 1200]
-    //       (값이 클수록 High 구간이 길어져 모터가 세게 돔)
-    // 분주비: 32분주 -> CS02=0, CS01=1, CS00=1 [cite: 1210]
+    // 3. 타이머 0 설정 (32분주, Fast PWM)
+    // WGM01:00 = 1, 1 -> Fast PWM 모드
+    // COM01:00 = 1, 0 -> 비반전 모드 (OCR0값 클수록 빨라짐)
+    // CS02:00  = 0, 1, 1 -> 32분주 설정 (약 1.95kHz)
     TCCR0 = (1<<WGM01) | (1<<WGM00) | (1<<COM01) | (0<<COM00) | (0<<CS02) | (1<<CS01) | (1<<CS00);
 
-    while(1)
-    {
-        // 1. 가변저항 값 읽기 (PF0 핀 = 채널 0)
-        // 결과값: 0(최소) ~ 255(최대)
-        unsigned char duty_value = ADC_Converter(0);
+    TIMSK = 0x00; // 인터럽트 끄기 (순수 하드웨어 PWM)
 
-        // 2. 읽은 값을 PWM 듀티비 통(OCR0)에 넣음
-        // OCR0 값이 커질수록 듀티비(%)가 증가하여 모터가 빨라짐
-        OCR0 = duty_value;
+    while(1){
+        // 1) 가변저항 값 읽기 (0~255)
+        adc_value = ADC_Converter(0);
 
-        // 3. 너무 빠른 갱신 방지를 위한 지연 (0.05초)
-        delay_m(50);
+        // 2) 모터 속도 반영 (PWM 듀티 제어)
+        OCR0 = adc_value;
+
+        // 3) Duty 퍼센트 계산 (스케일링)
+        // 0~255 범위를 0~100 범위로 변환
+        duty_percent = (unsigned int)((adc_value * 100) / 255);
+
+        // 4) LCD 출력 - 첫 번째 줄 (실제 값)
+        write_instruction(0x84); // 1번째 줄 맨 앞
+        write_string(" ");
+        Write_Dec_3Digit(adc_value); // 0~255 출력
+        write_string("   ");         // 잔상 제거용 공백
+
+        // 5) LCD 출력 - 두 번째 줄 (퍼센트)
+        write_instruction(0xC0); // 2번째 줄 맨 앞
+        write_string("DUTY : ");
+        Write_Dec_3Digit(duty_percent); // 0~100 출력
+        write_string("%  ");            // 퍼센트 기호 및 잔상 제거
+
+        delay_m(50); // 화면 갱신 딜레이
     }
 }
 
-// --- 보조 함수 ---
-
-// ADC 변환 함수 (짐님의 기존 로직 최적화)
-char ADC_Converter(char channel){
-    // 기존 설정(REFS, ADLAR)은 유지하고 하위 5비트(채널)만 변경
+// --- ADC 변환 (8비트 모드) ---
+unsigned char ADC_Converter(char channel){
     ADMUX = (ADMUX & 0xE0) | (channel & 0x07);
+    ADCSRA |= (1<<ADSC);  // 변환 시작
+    while(ADCSRA & 0x40); // 변환 완료 대기
+    return ADCH;          // 상위 8비트 반환
+}
 
-    ADCSRA |= (1<<ADSC); // 변환 시작 (Start Conversion)
-    while(ADCSRA & 0x40); // 변환 완료 대기 (ADSC가 0이 될 때까지)
+// --- 10진수 3자리 출력 함수 (공백 처리 포함) ---
+void Write_Dec_3Digit(unsigned int a)
+{
+    // 백의 자리
+    if(a >= 100) write_data((a/100) + '0');
+    else write_data(' ');
 
-    return ADCH; // 좌측 정렬이므로 상위 8비트만 읽어서 리턴 (0~255)
+    // 십의 자리
+    if(a >= 10) write_data(((a%100)/10) + '0');
+    else if(a >= 100) write_data('0');
+    else write_data(' ');
+
+    // 일의 자리 (항상 출력)
+    write_data((a%10) + '0');
+}
+
+// --- LCD 기본 함수들 ---
+void lcd_init(void){
+    write_instruction(0x30); delay_m(15);
+    write_instruction(0x30); delay_m(1);
+    write_instruction(0x30); delay_m(1);
+    write_instruction(0x38); delay_m(1);
+    write_instruction(0x0C); delay_m(1);
+    write_instruction(0x01); delay_m(2);
+    write_instruction(0x06); delay_m(1);
+}
+
+void write_string(char *pt){
+    while(*pt) { write_data(*pt); pt++; }
+}
+
+void write_data(char d){
+    PORTG = 0x06; delay_m(1);
+    PORTC = d;    delay_m(1);
+    PORTG = 0x04;
+}
+
+void write_instruction(char i){
+    PORTG = 0x02; delay_m(1);
+    PORTC = i;    delay_m(1);
+    PORTG = 0x00;
 }
 
 void delay_m(unsigned int m){
     unsigned int i, j;
-    for (i = 0; i < m; i++)
-    {
-        for (j = 0; j < 2100; j++);
+    for(i = 0; i < m; i++){
+        for(j = 0; j < 2100; j++);
     }
 }
